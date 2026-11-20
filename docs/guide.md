@@ -630,7 +630,7 @@ Then it appends the certificate (anchored, because the admitting peer is an admi
 
 A replayed identical request appends nothing: the first admission makes the key active (`ErrActiveKey`), and once it is removed its strand is used (`ErrKnownStrand`). There is no rate limit on admissions: an anchored person can mint certificates for as many devices as the per-person bound allows (`MaxCertsPerPerson`), and an admin admits each one that proves a valid certificate. The group's seats and that bound are the only limits.
 
-Every peer of a group must run the same kolo-id version, because apply verifies signatures with it: a new certificate or revocation format that one version accepts and another rejects would split the view. Put the kolo-id version in the `App` string of the group (for example `chat/v1+id0.1.6`) and change it with the version.
+Every peer of a group must run the same kolo-id version, because apply verifies signatures with it: a new certificate or revocation format that one version accepts and another rejects would split the view. Put the kolo-id version in the `App` string of the group (for example `chat/v1+id0.1.0`) and change it with the version.
 
 ### No ceiling, and the bounds of apply
 
