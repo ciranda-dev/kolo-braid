@@ -13,6 +13,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   there accept only `MaxMembers` 2 to 1024 and `MaxSettlers` up to 64). A group created with the old values keeps working,
   and opens and settles the same in both versions. `GroupConfig{}` now creates a group without a member ceiling, so
   `CheckAdmit` no longer returns `ErrGroupFull` by default. This ships in v0.1.1.
+- `devices.DefaultMaxRevocationsPerDevice` is 1,024, not 64. A device key with 65 to 1,024 approver revocations has them
+  rejected by v0.1.0 peers and kept by the new ones, and the roster holds one more key per such device (the counter), so every
+  peer of a group must run the same version before a device passes 64. The settled order, the entry format and the golden
+  vectors are unchanged.
 
 ### Changed
 
@@ -30,6 +34,10 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
   `Limits.MaxPendingPerStrand`) instead of by `MaxMembers`. The entry index cache is bounded at 32 MiB of clocks instead of
   4,096 clocks.
 - The settled order of every DAG, the entry and message encodings and the golden vectors are unchanged.
+- `devices.Options.MaxRevocationsPerDevice` is checked against a counter kept in the view, not by a scan of the device's
+  revocations. A view built before the counter, which holds records and no counter, is counted by a scan once.
+- docs/limits.md gives the measured apply cost behind `MaxCertsPerPerson` (0.7 to 1.0 ms at 1,024 certificates) and
+  `MaxRevocationsPerDevice`.
 
 ### Added
 

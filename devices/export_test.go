@@ -11,6 +11,9 @@ import (
 // Caps returns the bounds of apply in a store.
 func Caps(s *Store) (certs, reserved, revocations int) { return s.certCap, s.reserve, s.revCap }
 
+// CountKey is the key of the counter of the approver revocations of a device.
+func CountKey(s *Store, person, device []byte) []byte { return s.key(kindCount, person, device) }
+
 // RevocationsOf exposes revocationsOf, which reads the approver-signed records from another snapshot than the others.
 func RevocationsOf(s *Store, selfView, approverView *kolobraid.Snapshot, person []byte, c *koloid.DeviceCert) ([]*koloid.Revocation, error) {
 	return s.revocationsOf(selfView, approverView, person, c)

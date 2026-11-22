@@ -533,6 +533,59 @@ func TestFirstSightOfARecordStands(t *testing.T) {
 	}
 }
 
+// TestApproverRevocationsPastTheOldDefault: a device that had 65 certificates keeps all 65 approver revocations at the default bound.
+func TestApproverRevocationsPastTheOldDefault(t *testing.T) {
+	s := newStore(t, nil)
+	person, laptop, phone := generate(t), generate(t), generate(t)
+	b := found(t, s, generate(t), kolobraid.GroupConfig{})
+	lc := certify(t, person, laptop, 1, true)
+	mustRecord(t, b, certBody(t, lc))
+	for serial := uint64(1); serial <= 65; serial++ {
+		pc := certifyBy(t, laptop, lc, phone, serial)
+		mustRecord(t, b, revBody(t, revokeByApprover(t, laptop, lc, pc), pc))
+	}
+	revs, err := s.Revocations(view(t, b), person.PublicKey(), phone.PublicKey())
+	if err != nil || len(revs) != 65 {
+		t.Fatalf("Revocations = %d, %v; want 65", len(revs), err)
+	}
+}
+
+// TestRevocationCounter: a record seen twice counts once, and a view that holds records but no counter is counted by a scan.
+func TestRevocationCounter(t *testing.T) {
+	s := newStore(t, &devices.Options{MaxRevocationsPerDevice: 2})
+	person, laptop, phone := generate(t), generate(t), generate(t)
+	drop := []byte("drop the counter")
+	opts := options(t, s)
+	opts.Apply = func(tx *kolobraid.Tx, e *kolobraid.Entry) error {
+		if bytes.Equal(e.Body, drop) {
+			return tx.Delete(devices.CountKey(s, person.PublicKey(), phone.PublicKey()))
+		}
+		return applyFn(s)(tx, e)
+	}
+	b, err := kolobraid.Create(ctxT(t), generate(t), kolobraid.GroupConfig{App: app}, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { b.Close() })
+	lc := certify(t, person, laptop, 1, true)
+	mustRecord(t, b, certBody(t, lc))
+	revoke := func(serial uint64) []byte {
+		pc := certifyBy(t, laptop, lc, phone, serial)
+		return revBody(t, revokeByApprover(t, laptop, lc, pc), pc)
+	}
+	first := revoke(1)
+	mustRecord(t, b, first)
+	mustRecord(t, b, first)
+	mustRecord(t, b, revoke(2))
+	if !record(t, b, revoke(3)) {
+		t.Fatal("a third record applied")
+	}
+	mustRecord(t, b, drop)
+	if !record(t, b, revoke(4)) {
+		t.Fatal("a record applied after the counter was dropped")
+	}
+}
+
 func TestApproverRevocationBoundIsPerDevice(t *testing.T) {
 	s := newStore(t, &devices.Options{MaxRevocationsPerDevice: 1})
 	person, laptop, d1, d2 := generate(t), generate(t), generate(t), generate(t)
@@ -587,7 +640,7 @@ func TestRetiredApproverRecordsAllDropped(t *testing.T) {
 func TestDefaultBounds(t *testing.T) {
 	s := newStore(t, nil)
 	certs, reserved, revs := devices.Caps(s)
-	if certs != 1024 || reserved != 128 || revs != 64 || devices.DefaultMaxCertsPerPerson != 1024 || devices.DefaultMaxRevocationsPerDevice != 64 {
+	if certs != 1024 || reserved != 128 || revs != 1024 || devices.DefaultMaxCertsPerPerson != 1024 || devices.DefaultMaxRevocationsPerDevice != 1024 {
 		t.Fatalf("bounds = %d %d %d", certs, reserved, revs)
 	}
 	// The reserve is an eighth of the bound unless it is given, and -1 reserves nothing.

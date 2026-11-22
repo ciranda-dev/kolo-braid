@@ -22,8 +22,8 @@ const (
 	// DefaultMaxCertsPerPerson is the default of Options.MaxCertsPerPerson.
 	DefaultMaxCertsPerPerson = 1024
 	// DefaultMaxRevocationsPerDevice is the default of Options.MaxRevocationsPerDevice.
-	DefaultMaxRevocationsPerDevice = 64
-	// maxCertsLimit and maxRevocationsLimit bound the options: one scan of the view is at most that long.
+	DefaultMaxRevocationsPerDevice = DefaultMaxCertsPerPerson
+	// maxCertsLimit and maxRevocationsLimit bound the options: a scan of the view, in apply or in a read, is at most that long.
 	maxCertsLimit       = 1 << 20
 	maxRevocationsLimit = 1 << 16
 )
@@ -61,7 +61,8 @@ type Options struct {
 	// and -1 reserves nothing.
 	PersonCertReserve int
 	// MaxRevocationsPerDevice is the most approver-signed revocations kept for one device key, one per certificate it had; the
-	// next is rejected. Default DefaultMaxRevocationsPerDevice, range 1 to 2^16: an arbitrary safety bound.
+	// next is rejected. Default DefaultMaxRevocationsPerDevice, range 1 to 2^16: the same as MaxCertsPerPerson, since a stolen
+	// approver signs one revocation per certificate it can mint. Apply reads a counter, and a read of the roster scans at most this many.
 	MaxRevocationsPerDevice int
 	// Now is the clock of Admit; nil means time.Now.
 	Now func() time.Time
@@ -90,11 +91,12 @@ func (s *Store) acquire(ctx context.Context) error {
 
 func (s *Store) release() { <-s.sem }
 
-// Key kinds under the prefix: 'c' person device, 'r' person device, 'v' person device target.
+// Key kinds under the prefix: 'c' person device, 'r' person device, 'v' person device target, 'n' person device.
 const (
 	kindCert    = 'c' // the certificate with the highest serial of a device
 	kindSelf    = 'r' // the highest revocation by serial of a device, signed by the person or the device itself
 	kindApprove = 'v' // one approver-signed revocation of a device, by target hash
+	kindCount   = 'n' // how many 'v' records a device has
 )
 
 // New returns a store whose records live in the view under prefix, which may be empty.
@@ -340,14 +342,47 @@ func (s *Store) putApprover(tx *kolobraid.Tx, e *kolobraid.Entry, r *koloid.Revo
 	} else if !errors.Is(err, kolobraid.ErrNotFound) {
 		return err
 	}
-	n := 0
-	start := s.key(kindApprove, r.Person(), r.Device())
-	for range tx.Scan(start, upper(start)) {
-		if n++; n >= s.revCap {
-			return reject("too many revocations of one device", nil)
-		}
+	n, err := s.revocationCount(tx, r.Person(), r.Device())
+	if err != nil {
+		return err
+	}
+	if n >= s.revCap {
+		return reject("too many revocations of one device", nil)
+	}
+	var c kolocodec.Encoder
+	c.PutUvarint(uint64(n + 1))
+	if err := tx.Put(s.key(kindCount, r.Person(), r.Device()), c.Bytes()); err != nil {
+		return err
 	}
 	return tx.Put(key, stored{position: e.Position, raw: r.Encode()}.encode())
+}
+
+// revocationCount returns the approver records of a device. A view that holds records but no counter, as one built before the
+// counter was kept does, is counted by a scan, up to the bound.
+func (s *Store) revocationCount(tx *kolobraid.Tx, person, device []byte) (int, error) {
+	raw, err := tx.Get(s.key(kindCount, person, device))
+	if err == nil {
+		d := kolocodec.NewDecoder(raw)
+		n, err := d.Uvarint()
+		if err == nil {
+			err = d.Done()
+		}
+		if err != nil {
+			return 0, fmt.Errorf("%w: revocation counter: %w", kolobraid.ErrCorrupt, err)
+		}
+		return int(min(n, uint64(s.revCap))), nil
+	}
+	if !errors.Is(err, kolobraid.ErrNotFound) {
+		return 0, err
+	}
+	n := 0
+	start := s.key(kindApprove, person, device)
+	for range tx.Scan(start, upper(start)) {
+		if n++; n >= s.revCap {
+			break
+		}
+	}
+	return n, nil
 }
 
 // putSelf keeps the revocation by serial with the highest UpToSerial and the position of the first one: the position is when
