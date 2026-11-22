@@ -31,8 +31,6 @@ var (
 const (
 	// checkpointEvery keeps a full clock at strand indexes that are multiples of 256, so a clock is rebuilt from at most 255 deltas.
 	checkpointEvery = 256
-	// MaxLinksLimit is the largest MaxLinks: MaxMembers is at most 1024.
-	MaxLinksLimit = 1023
 	// pendingNodeCost and pendingLinkCost are the measured heap bytes of one pending node and of each of its links, rounded up.
 	pendingNodeCost = 512
 	pendingLinkCost = 256
@@ -112,7 +110,7 @@ type Segment struct {
 
 // Config sets the bounds of a DAG.
 type Config struct {
-	// MaxLinks is MaxMembers - 1 of the group, 1 to MaxLinksLimit.
+	// MaxLinks is the most links of an entry, 1 or more.
 	MaxLinks int
 	// MaxPendingBytes bounds the nodes that wait for a predecessor.
 	MaxPendingBytes int64
@@ -185,7 +183,7 @@ type DAG struct {
 
 // New returns an empty DAG, or one with the segment table of an earlier run.
 func New(cfg Config) (*DAG, error) {
-	if cfg.MaxLinks < 1 || cfg.MaxLinks > MaxLinksLimit || cfg.MaxPendingBytes < 1 || cfg.MaxPendingPerStrand < 0 || cfg.MaxForks < 0 {
+	if cfg.MaxLinks < 1 || cfg.MaxPendingBytes < 1 || cfg.MaxPendingPerStrand < 0 || cfg.MaxForks < 0 {
 		return nil, fmt.Errorf("%w: config", ErrInvalid)
 	}
 	d := &DAG{cfg: cfg, byStrand: map[StrandID][]int{}, byID: map[ID]ref{}, pending: map[ID]*pend{}, waiters: map[Link][]ID{},

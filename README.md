@@ -196,7 +196,7 @@ Errors work with `errors.Is`; the library's own error messages start with `kolob
 
 ## Defaults
 
-Fixed by the genesis entry (`GroupConfig`): `Quorum` Majority (crash faults; TwoThirds when a settler device may be compromised), `MaxMembers` 64 (one node's default peer budget), `MaxSettlers` 7 (Majority then tolerates 3 offline), `MinSettlers` 4 (the margin above), `MaxBody` 1 MiB (the view's value bound) and `CheckpointEvery` 1024 settled positions (a divergence is caught within that many). Local bounds (`Limits`) have their own defaults, ranges and reasons in [docs/limits.md](docs/limits.md).
+Fixed by the genesis entry (`GroupConfig`): `Quorum` Majority (crash faults; TwoThirds when a settler device may be compromised), `MaxMembers` none (0: no ceiling; an application may set one), `MaxSettlers` 7 (Majority then tolerates 3 offline), `MinSettlers` 4 (the margin above), `MaxBody` 1 MiB (the view's value bound) and `CheckpointEvery` 1024 settled positions (a divergence is caught within that many). Local bounds (`Limits`) have their own defaults, ranges and reasons in [docs/limits.md](docs/limits.md).
 
 ## Formats
 

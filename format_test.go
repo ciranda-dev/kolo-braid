@@ -3,6 +3,7 @@ package kolobraid
 import (
 	"bytes"
 	"crypto/ed25519"
+	"encoding/binary"
 	"errors"
 	"math"
 	"reflect"
@@ -300,7 +301,7 @@ func TestBodyBounds(t *testing.T) {
 
 func TestGroupConfig(t *testing.T) {
 	d := GroupConfig{App: "x"}.WithDefaults()
-	want := GroupConfig{App: "x", Quorum: Majority, MaxMembers: 64, MaxSettlers: 7, MinSettlers: 4, MaxBody: 1 << 20, CheckpointEvery: 1024}
+	want := GroupConfig{App: "x", Quorum: Majority, MaxSettlers: 7, MinSettlers: 4, MaxBody: 1 << 20, CheckpointEvery: 1024}
 	if d != want {
 		t.Errorf("defaults = %+v", d)
 	}
@@ -317,9 +318,9 @@ func TestGroupConfig(t *testing.T) {
 		"quorum 0":              func(c *GroupConfig) { c.Quorum = 0 },
 		"quorum 3":              func(c *GroupConfig) { c.Quorum = 3 },
 		"members 1":             func(c *GroupConfig) { c.MaxMembers = 1 },
-		"members 1025":          func(c *GroupConfig) { c.MaxMembers = 1025 },
+		"members -1":            func(c *GroupConfig) { c.MaxMembers = -1 },
 		"settlers 0":            func(c *GroupConfig) { c.MaxSettlers = 0 },
-		"settlers 65":           func(c *GroupConfig) { c.MaxSettlers = 65 },
+		"settlers over links":   func(c *GroupConfig) { c.MaxSettlers = 40000 },
 		"settlers over members": func(c *GroupConfig) { c.MaxMembers, c.MaxSettlers, c.MinSettlers = 4, 5, 4 },
 		"min settlers 0":        func(c *GroupConfig) { c.MinSettlers = 0 },
 		"min over max":          func(c *GroupConfig) { c.MinSettlers = 8 },
@@ -340,15 +341,66 @@ func TestGroupConfig(t *testing.T) {
 	}
 	// The ends of every range are accepted.
 	for name, c := range map[string]GroupConfig{
-		"low":  {App: "a", Quorum: Majority, MaxMembers: 2, MaxSettlers: 1, MinSettlers: 1, MaxBody: 1 << 10, CheckpointEvery: 64},
-		"high": {App: strings.Repeat("a", 64), Quorum: TwoThirds, MaxMembers: 1024, MaxSettlers: 64, MinSettlers: 64, MaxBody: 3 << 20, CheckpointEvery: 1 << 20},
+		"low":                        {App: "a", Quorum: Majority, MaxMembers: 2, MaxSettlers: 1, MinSettlers: 1, MaxBody: 1 << 10, CheckpointEvery: 64},
+		"high":                       {App: strings.Repeat("a", 64), Quorum: TwoThirds, MaxSettlers: 1000, MinSettlers: 1000, MaxBody: 3 << 20, CheckpointEvery: 1 << 20},
+		"1,100 members, 70 settlers": {App: "a", Quorum: Majority, MaxMembers: 1100, MaxSettlers: 70, MinSettlers: 4, MaxBody: 1 << 20, CheckpointEvery: 1024},
 	} {
 		if _, err := decodeBody(KindGenesis, rawBody(genesisBody{Config: c}), genesisBounds()); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if d.bounds() != (formatBounds{64, 7, 1 << 20}) || !genesisBounds().valid() || (formatBounds{}).valid() {
+	if d.bounds() != (formatBounds{0, 7, 1 << 20}) || !genesisBounds().valid() || (formatBounds{}).valid() {
 		t.Error("bounds")
+	}
+}
+
+func TestGroupConfigNoMemberCeiling(t *testing.T) {
+	if d := (GroupConfig{App: "x"}).WithDefaults(); d.MaxMembers != 0 || d.MaxSettlers != 7 {
+		t.Errorf("defaults = %+v", d)
+	}
+	for _, n := range [][2]int{{0, 7}, {1025, 65}, {30000, 300}, {1100, 70}, {0, 300}} {
+		c := GroupConfig{App: "x", MaxMembers: n[0], MaxSettlers: n[1]}.WithDefaults()
+		if err := c.Validate(); err != nil {
+			t.Errorf("members %d, settlers %d: %v", n[0], n[1], err)
+			continue
+		}
+		got, err := decodeBody(KindGenesis, rawBody(genesisBody{Config: c}), genesisBounds())
+		if err != nil || got.(genesisBody).Config != c {
+			t.Errorf("members %d, settlers %d: genesis round trip %v", n[0], n[1], err)
+		}
+	}
+}
+
+func TestSettlersBodyFollowsMaxSettlers(t *testing.T) {
+	keys := func(n int) []ed25519.PublicKey {
+		out := make([]ed25519.PublicKey, n)
+		for i := range out {
+			out[i] = make(ed25519.PublicKey, 32)
+			binary.BigEndian.PutUint32(out[i], uint32(i)+1)
+		}
+		return out
+	}
+	bd := formatBounds{MaxSettlers: 300, MaxBody: 1 << 20}
+	b, err := encodeBody(settlersBody{Rule: Majority, Keys: keys(300)}, bd)
+	if err != nil {
+		t.Fatalf("300 keys under MaxSettlers 300: %v", err)
+	}
+	if got, err := decodeBody(KindSettlers, b, bd); err != nil || len(got.(settlersBody).Keys) != 300 {
+		t.Fatalf("300 keys decoded: %v", err)
+	}
+	if _, err := encodeBody(settlersBody{Rule: Majority, Keys: keys(301)}, bd); err == nil {
+		t.Error("301 keys under MaxSettlers 300")
+	}
+}
+
+func TestCreateBeyondOldCeilings(t *testing.T) {
+	f := newFounder(t, "f", GroupConfig{MaxMembers: 1100, MaxSettlers: 70}, appApply)
+	if f.b.cfg.MaxMembers != 1100 || f.b.cfg.MaxSettlers != 70 {
+		t.Fatalf("config %+v", f.b.cfg)
+	}
+	g := newFounder(t, "g", GroupConfig{}, appApply)
+	if g.b.cfg.MaxMembers != 0 {
+		t.Fatalf("default config %+v", g.b.cfg)
 	}
 }
 

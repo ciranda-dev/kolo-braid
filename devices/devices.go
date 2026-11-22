@@ -50,8 +50,7 @@ var (
 // the same values, as it must run the same apply function.
 type Options struct {
 	// MaxDevices, when positive, is the most seats of one person that Admit lets in: the members that hold an anchored certificate
-	// of it, revoked or not. Zero, the default, is no ceiling: the group's MaxMembers seats are the only bound. Local to the
-	// admitting peer.
+	// of it, revoked or not. Zero, the default, is no ceiling. Local to the admitting peer.
 	MaxDevices int
 	// MaxCertsPerPerson is the most device certificates a view holds for one person; the next is rejected. Default
 	// DefaultMaxCertsPerPerson, range 1 to 2^20: it bounds the scan of one apply.

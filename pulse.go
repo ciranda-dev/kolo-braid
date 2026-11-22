@@ -137,6 +137,10 @@ func (b *Braid) links() []Link {
 	for _, st := range seats {
 		ids[kololog.LogID(st.Strand)] = true
 	}
+	seatIDs := map[kololog.LogID]bool{}
+	for _, st := range seats {
+		seatIDs[kololog.LogID(st.Strand)] = true
+	}
 	for id := range ids {
 		if id == b.meta.OwnStrand || b.evidence[id] != nil {
 			continue
@@ -154,6 +158,29 @@ func (b *Braid) links() []Link {
 		if ok {
 			out = append(out, Link{Strand: id, Index: l.Index, ID: EntryID(l.ID)})
 		}
+	}
+	return capLinks(out, seatIDs, b.bounds.links(), uint64(b.own.Len()))
+}
+
+// capLinks keeps at most limit links, sorted by strand: the seats' first, as the pulse rules need them, then a window of the others
+// that moves with the own entry index, so every strand is linked again within ceil(others / room) own entries. Only a braid with
+// more writers than an entry may link reaches the cut.
+func capLinks(links []Link, seats map[kololog.LogID]bool, limit int, index uint64) []Link {
+	slices.SortFunc(links, func(a, c Link) int { return bytes.Compare(a.Strand[:], c.Strand[:]) })
+	if len(links) <= limit {
+		return links
+	}
+	var out, rest []Link
+	for _, l := range links {
+		if seats[l.Strand] {
+			out = append(out, l)
+		} else {
+			rest = append(rest, l)
+		}
+	}
+	room := limit - len(out)
+	for i := range room {
+		out = append(out, rest[(index*uint64(room)+uint64(i))%uint64(len(rest))])
 	}
 	slices.SortFunc(out, func(a, c Link) int { return bytes.Compare(a.Strand[:], c.Strand[:]) })
 	return out

@@ -19,10 +19,7 @@ var (
 	ErrCorrupt = errors.New("kolobraid: corrupt roster record")
 )
 
-const (
-	minMaxMembers, maxMaxMembers = 2, 1024
-	maxMaxSettlers               = 64
-)
+const minMaxMembers = 2
 
 // ID is an entry ID.
 type ID = dag.ID
@@ -79,15 +76,15 @@ type Genesis struct {
 	Founder Key
 	Strand  StrandID
 	Rule    Rule
-	// MaxMembers is 2 to 1024; MaxSettlers is 1 to 64 and at most MaxMembers.
+	// MaxMembers is 0 for no ceiling, or 2 and more; MaxSettlers is 1 and more, and at most MaxMembers when that is set.
 	MaxMembers, MaxSettlers int
 	// Seeds is the number of seed entries after the genesis entry of a successor braid.
 	Seeds uint64
 }
 
 func (g Genesis) check() error {
-	if g.Group == (ID{}) || !knownRule(g.Rule) || g.MaxMembers < minMaxMembers || g.MaxMembers > maxMaxMembers ||
-		g.MaxSettlers < 1 || g.MaxSettlers > min(maxMaxSettlers, g.MaxMembers) {
+	if g.Group == (ID{}) || !knownRule(g.Rule) || g.MaxMembers < 0 || g.MaxMembers == 1 ||
+		g.MaxSettlers < 1 || (g.MaxMembers > 0 && g.MaxSettlers > g.MaxMembers) {
 		return fmt.Errorf("%w: genesis", ErrInvalid)
 	}
 	return nil
@@ -320,7 +317,7 @@ func (r *Roster) decideAdd(a *Add, admin bool) (Reason, Change) {
 	cur, active := r.members[a.Key]
 	_, used := r.used[a.Strand]
 	switch {
-	case !active && len(r.members) >= r.g.MaxMembers:
+	case !active && r.g.MaxMembers > 0 && len(r.members) >= r.g.MaxMembers:
 		return Full, None
 	case !active && used:
 		return UsedStrand, None

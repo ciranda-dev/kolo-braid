@@ -568,10 +568,13 @@ func TestAnswersFollowAccess(t *testing.T) {
 	}
 }
 
-// TestUnknownHeadsBounded: heads of strands not followed are kept, the newest per strand, at most 2 x MaxMembers per
+// TestUnknownHeadsBounded: heads of strands not followed are kept, the newest per strand, at most Limits.MaxUnknownHeads per
 // connection, and taken once the strand is followed.
 func TestUnknownHeadsBounded(t *testing.T) {
 	f := newFounder(t, "f", GroupConfig{MaxMembers: 4}, appApply)
+	f.b.mu.Lock()
+	f.b.lim.MaxUnknownHeads = 8
+	f.b.mu.Unlock()
 	s := f.b.sync
 	r := &remote{s: s, key: keyOf(f), heads: map[kololog.LogID]uint64{}, unknown: map[kololog.LogID]kololog.Head{},
 		alive: true}

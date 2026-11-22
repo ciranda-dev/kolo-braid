@@ -370,7 +370,7 @@ func (b *Braid) CheckAdmit(joiner ed25519.PublicKey, request []byte) error {
 	if err == nil {
 		if _, active := b.tent.Member(rosterKey(joiner)); active {
 			err = ErrActiveKey
-		} else if b.tent.Len() >= b.cfg.MaxMembers {
+		} else if b.cfg.MaxMembers > 0 && b.tent.Len() >= b.cfg.MaxMembers {
 			err = ErrGroupFull
 		}
 	}

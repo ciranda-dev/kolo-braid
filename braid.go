@@ -90,10 +90,11 @@ type Braid struct {
 
 	evidence map[kololog.LogID]*heldEvidence
 	// early holds Evidence entries placed before the strand they accuse is followed, a few per strand by key.
-	early  map[kololog.LogID][]evidenceBody
-	halted bool
-	erased error
-	temp   *kolostore.Store
+	early      map[kololog.LogID][]evidenceBody
+	earlyBytes int64
+	halted     bool
+	erased     error
+	temp       *kolostore.Store
 
 	claims  map[uint64]map[[32]byte]Digest
 	certs   map[uint64]Digest
@@ -783,6 +784,12 @@ func (b *Braid) maxBody() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.cfg.MaxBody
+}
+
+func (b *Braid) maxUnknownHeads() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.lim.MaxUnknownHeads
 }
 
 func (b *Braid) groupBounds() formatBounds {

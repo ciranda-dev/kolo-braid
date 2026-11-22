@@ -9,7 +9,7 @@ import (
 )
 
 // announce sends the heads that changed since the last announcement on this connection, all of them the first time, in
-// messages of at most MaxMembers heads. It reports whether it sent any.
+// messages of at most announceHeads heads. It reports whether it sent any.
 func (r *remote) announce() bool {
 	b := r.s.b
 	var changed []kololog.Head
@@ -20,9 +20,8 @@ func (r *remote) announce() bool {
 			changed = append(changed, h)
 		}
 	}
-	n := r.s.bounds().MaxMembers
-	for i := 0; i < len(changed); i += n {
-		r.send(announceMsg{Group: b.meta.Group, Heads: changed[i:min(i+n, len(changed))]})
+	for c := range slices.Chunk(changed, r.s.bounds().announceHeads()) {
+		r.send(announceMsg{Group: b.meta.Group, Heads: c})
 	}
 	return len(changed) > 0
 }
@@ -128,9 +127,9 @@ func (s *syncer) sameSize(r *remote, key []byte, h kololog.Head) error {
 	return nil
 }
 
-// keepUnknown keeps the newest head per strand that cannot be checked yet, at most 2 x MaxMembers per connection.
+// keepUnknown keeps the newest head per strand that cannot be checked yet, at most Limits.MaxUnknownHeads per connection.
 func (r *remote) keepUnknown(h kololog.Head) {
-	limit := 2 * r.s.bounds().MaxMembers
+	limit := r.s.b.maxUnknownHeads()
 	r.s.mu.Lock()
 	defer r.s.mu.Unlock()
 	old, ok := r.unknown[h.LogID]

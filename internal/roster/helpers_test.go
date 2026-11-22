@@ -115,7 +115,7 @@ func dataE() Entry { return Entry{Kind: KindData} }
 
 func newTestDAG(t testing.TB) *dag.DAG {
 	t.Helper()
-	d, err := dag.New(dag.Config{MaxLinks: dag.MaxLinksLimit, MaxPendingBytes: 1 << 40})
+	d, err := dag.New(dag.Config{MaxLinks: 1023, MaxPendingBytes: 1 << 40})
 	if err != nil {
 		t.Fatal(err)
 	}

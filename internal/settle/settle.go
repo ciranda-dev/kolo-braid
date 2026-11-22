@@ -23,11 +23,7 @@ var (
 	ErrMalformed = errors.New("kolobraid: malformed settlement state")
 )
 
-const (
-	// MaxSeats is the largest seat count of a config: MaxSettlers is at most 64.
-	MaxSeats  = 64
-	configTag = "kolo-braid/config/v0"
-)
+const configTag = "kolo-braid/config/v0"
 
 // Key is a settler's public key.
 type Key [32]byte
@@ -355,9 +351,6 @@ func cloneConfig(c Config) Config {
 }
 
 func checkSeats(seats []Seat) error {
-	if len(seats) > MaxSeats {
-		return fmt.Errorf("%w: %d seats", ErrInvalid, len(seats))
-	}
 	strands := map[dag.StrandID]bool{}
 	for i, st := range seats {
 		if i > 0 && bytes.Compare(seats[i-1].Key[:], st.Key[:]) >= 0 {

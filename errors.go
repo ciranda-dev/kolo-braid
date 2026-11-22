@@ -51,7 +51,7 @@ var (
 	ErrReorged = errors.New("kolobraid: order changed")
 	// ErrKnownStrand is returned by Admit for a strand log ID that is already used or known.
 	ErrKnownStrand = errors.New("kolobraid: strand already known")
-	// ErrGroupFull is returned by CheckAdmit when the group already has MaxMembers active members.
+	// ErrGroupFull is returned by CheckAdmit when the group sets MaxMembers and already has that many active members.
 	ErrGroupFull = errors.New("kolobraid: group full")
 	// ErrActiveKey is returned by Admit for a key that is already an active member.
 	ErrActiveKey = errors.New("kolobraid: key already active")

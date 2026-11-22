@@ -6,13 +6,14 @@ import (
 	"math"
 	"math/rand/v2"
 	"slices"
+	"strconv"
 	"testing"
 )
 
 func TestNewConfig(t *testing.T) {
 	for _, c := range []Config{
 		{MaxLinks: 0, MaxPendingBytes: 1},
-		{MaxLinks: MaxLinksLimit + 1, MaxPendingBytes: 1},
+		{MaxLinks: -1, MaxPendingBytes: 1},
 		{MaxLinks: 1, MaxPendingBytes: 0},
 		{MaxLinks: 1, MaxPendingBytes: 1, Segments: []Segment{{Start: 1, Parent: -1}}},
 		{MaxLinks: 1, MaxPendingBytes: 1, Segments: []Segment{{Start: 0, Parent: 0}}},
@@ -28,7 +29,7 @@ func TestNewConfig(t *testing.T) {
 			t.Errorf("New(%+v) = %v", c, err)
 		}
 	}
-	for _, c := range []Config{{MaxLinks: 1, MaxPendingBytes: 1}, {MaxLinks: MaxLinksLimit, MaxPendingBytes: 1}} {
+	for _, c := range []Config{{MaxLinks: 1, MaxPendingBytes: 1}, {MaxLinks: 1 << 20, MaxPendingBytes: 1}} {
 		if _, err := New(c); err != nil {
 			t.Errorf("New(%+v) = %v", c, err)
 		}
@@ -91,13 +92,14 @@ func TestLinkBound(t *testing.T) {
 }
 
 func TestHugeFanIn(t *testing.T) {
-	d := newDAG(t, MaxLinksLimit)
+	const fanIn = 4096
+	d := newDAG(t, fanIn)
 	var links []Link
 	var nodes []Node
-	for i := range MaxLinksLimit {
+	for i := range fanIn {
 		var s StrandID
 		s[0], s[1] = byte(i>>8), byte(i)
-		n := node(idOf("w"+string(rune(i))), s, 0, ID{}, Other)
+		n := node(idOf("w"+strconv.Itoa(i)), s, 0, ID{}, Other)
 		nodes = append(nodes, n)
 		links = append(links, linkTo(n))
 	}
@@ -110,11 +112,11 @@ func TestHugeFanIn(t *testing.T) {
 	}
 	addAll(t, d, shuffled(rand.New(rand.NewPCG(3, 3)), nodes))
 	c, ok := d.Clock(fan.ID)
-	if !ok || len(c) != MaxLinksLimit+1 {
+	if !ok || len(c) != fanIn+1 {
 		t.Fatalf("fan-in clock has %d components", len(c))
 	}
 	tail, err := d.Tail(ID{}, nil, [32]byte{})
-	if err != nil || len(tail) != MaxLinksLimit+1 || tail[len(tail)-1] != fan.ID {
+	if err != nil || len(tail) != fanIn+1 || tail[len(tail)-1] != fan.ID {
 		t.Fatalf("fan-in entry not last: %v", err)
 	}
 }
