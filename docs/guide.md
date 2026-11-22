@@ -533,9 +533,8 @@ view. Puts and deletes are data entries; the last effective operation on a key
 in the braid's order wins, on every peer alike, with no clock. Concurrent
 writes are decided by the order, which is not fair (a settler can try to choose
 it), so "the first write wins" rules must not rely on it. The map has no access
-control: any active member can put or delete any key. When keys belong to
-members, check `Entry.Writer` (and `Tx.Member` for its roles) in the apply
-function before `Store.Apply`.
+control unless `Options.Allow` is set: otherwise any active member can put or
+delete any key.
 
 ```go
 settings := kv.New([]byte("settings/"))
@@ -559,11 +558,20 @@ snap.Close()
 
 - `New(prefix)`: the pairs live in the view under prefix ‖ key; no other key of
   the application may start with the prefix.
+- `NewWith(prefix, Options{Allow: f})`: `f(tx, e, key, del)` reports whether
+  entry `e` may write `key` (`del` for a delete; `key` is without the prefix).
+  It runs inside apply at the entry's position, so `tx.Member(e.Writer)` gives
+  the roster and roles of that position. It must depend only on its arguments,
+  write nothing through `tx` and not panic: a panic halts the view on that
+  peer. A refused entry is still appended and ordered, so `Put` returns nil
+  for it; every peer rejects it (`Reject`) and it enters the running digest.
+  For example, `bytes.HasPrefix(key, e.Writer)` lets a member write only the
+  keys under its own public key.
 - `Apply` handles data entries whose body starts with the kv tag and reports
   false for every other entry, so an application routes its own entries next to
   it. Each kv entry is one transaction. A kv body that does not decode, or whose
-  key does not fit with the prefix, is rejected (`Reject`), the same on every
-  peer.
+  key does not fit with the prefix, or that `Allow` refuses, is rejected
+  (`Reject`), the same on every peer.
 - `Put` and `Delete` append one entry each; it takes effect at its position.
   Keys are at most 32 KiB with the prefix, values at most 1 MiB
   (`kolobraid.ErrTooLarge`), and the whole body at most the braid's `MaxBody`,
