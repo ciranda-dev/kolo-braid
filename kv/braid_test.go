@@ -17,12 +17,21 @@ import (
 )
 
 // members starts a braid of two members on memory backends whose apply routes kv entries to s; connect links them over
-// kolo-secure on 127.0.0.1.
-func members(t *testing.T, s *kv.Store) (a, b *kolobraid.Braid, connect func()) {
+// kolo-secure on 127.0.0.1 and returns a function that cuts the link.
+func members(t *testing.T, s *kv.Store) (a, b *kolobraid.Braid, connect func() (cut func())) {
+	t.Helper()
+	return gatedMembers(t, s, nil)
+}
+
+// gatedMembers is members whose apply waits for gate to close before it handles a data entry; a nil gate never waits.
+func gatedMembers(t *testing.T, s *kv.Store, gate <-chan struct{}) (a, b *kolobraid.Braid, connect func() (cut func())) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	apply := func(tx *kolobraid.Tx, e *kolobraid.Entry) error {
+		if gate != nil && e.Kind == kolobraid.KindData {
+			<-gate
+		}
 		_, err := s.Apply(tx, e)
 		return err
 	}
@@ -60,7 +69,7 @@ func members(t *testing.T, s *kv.Store) (a, b *kolobraid.Braid, connect func()) 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { b.Close() })
-	connect = func() {
+	connect = func() func() {
 		l, err := kolosecure.Listen(ctx, "127.0.0.1:0", ids[0], nil)
 		if err != nil {
 			t.Fatal(err)
@@ -77,6 +86,7 @@ func members(t *testing.T, s *kv.Store) (a, b *kolobraid.Braid, connect func()) 
 		}
 		t.Cleanup(func() { c.Close() })
 		go b.ServeConn(ctx, c)
+		return func() { c.Close() }
 	}
 	return a, b, connect
 }

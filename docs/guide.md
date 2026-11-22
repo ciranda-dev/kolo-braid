@@ -581,6 +581,31 @@ snap.Close()
   `Range(start, end)` yields keys in `[start, end)`; an empty end has no upper
   bound, as in `Snapshot.Scan`, and `start >= end` yields nothing.
 
+`kv.Open(b, s, read)` returns a `*kv.DB`, a `kolokv.Store` of kolo-kv, so code written against
+that interface runs on a braid; `s` must be the `Store` that `b`'s apply routes kv entries to. In this package `Store`
+stays the helper that apply calls and `DB` is the `kolokv.Store`.
+
+```go
+db, err := kv.Open(b, settings, kv.Tentative)
+check(err)
+check(db.Put(ctx, []byte("theme"), []byte("dark")))
+v, err := db.Get([]byte("theme")) // a Put shows once the braid has applied it
+```
+
+- `read` is fixed at `Open`. `Tentative` reads settled plus the tentative entries applied so far, and a reorg can change
+  a read; `Settled` reads settled entries only, so no reorg undoes a value read and a write shows only after settlement.
+  Neither shows a write when `Put` returns: `Put` does not wait for apply.
+- A nil error from `Put` or `Delete` means the entry was appended, not that it takes effect: an entry that `Allow` refuses
+  is still appended. A done `ctx` writes nothing and the error matches `ctx.Err()`.
+- `Get` of a missing key matches `kolokv.ErrNotFound` and `kolobraid.ErrNotFound`. A key over 32 KiB with the prefix
+  matches `kolokv.ErrKeyTooLarge` and `kolobraid.ErrTooLarge`; a value over 1 MiB, or a body over `MaxBody`, matches
+  `kolokv.ErrValueTooLarge` and `kolobraid.ErrTooLarge`. After `Close` every call returns `kolokv.ErrClosed`; a write on
+  a closed braid matches `kolokv.ErrClosed` and `kolobraid.ErrClosed`. Every other braid error passes through.
+- `Range` and `Prefix` return a `*kolokv.Iterator` over one snapshot taken when they are called. Close it unless `Next`
+  returned false: it holds the snapshot until then. Unlike `Store.Range`, an empty non-nil `end` yields nothing and a
+  nil `end` has no upper bound, as in kolo-kv.
+- `DB.Close` does not close the braid.
+
 The body is, in kolo-codec, `string "kolo-braid/kv/v0" ‖ uvarint op (1 put, 2
 delete) ‖ bytes(key) ‖ bytes(value)`, the value empty for a delete. The
 package's tests run it through `kolobraidtest.CheckApply` and

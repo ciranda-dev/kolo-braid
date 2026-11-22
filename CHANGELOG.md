@@ -9,6 +9,8 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ### Added
 
+- `kv.Open`, `kv.DB` and `kv.Read` (`Tentative`, `Settled`): a `kolokv.Store` over a braid, so code written against kolo-kv's
+  interface runs on both writer models. kolo-braid now requires kolo-kv v0.1.0.
 - `kv.Options` with an `Allow` rule and `kv.NewWith`: a deterministic per-key check run in apply; a refused entry is a
   `Reject` on every peer.
 
