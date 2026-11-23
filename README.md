@@ -187,7 +187,9 @@ More programs, each taking a new temporary directory as its only argument and bi
 | `Braid.Status` | Positions, settler config, pending config, confirmation and halt state |
 | `PrefixBackend` | Several braids and other Kolo users on one backend |
 | `kolobraidtest.CheckApply`, `CheckUpgrade`, `FindDivergence` | Check that an apply function is deterministic, that a new version keeps old positions, and where replicas first differ |
-| `kv.New`, `Store.Apply`, `Put`, `Delete`, `Get`, `Range` | A key-value map in the view: the last effective write in the braid's order wins |
+| `kv.New`, `Store.Apply`, `Put`, `Delete`, `Get`, `Range` | A key-value map in the view: the last effective write in the braid's order wins; a delete keeps the key name and old values in the history of every peer |
+| `kv.Open`, `DB`, `Tentative`, `Settled` | A `kolokv.Store` over a braid: settled reads show a prefix of one order, the same on every peer; tentative reads show a write once applied and can change |
+| `kv.NewWith`, `Options.Allow` | A deterministic per-key rule run in apply; with none, any active member may write any key |
 | `devices.New`, `Store.Apply`, `CertBody`, `RevocationBody`, `Cert`, `Anchored`, `Devices`, `Revocations`, `Verify` | A roster of device certificates and revocations in the view, and `Verify` of a device's message for a person; `RevocationsOf` the revocations that void a certificate, its issuer's included; `CertTx`, `RevocationsTx` and `RevocationsOfTx` read it inside apply, at an entry's position |
 | `devices.NewJoinRequest`, `Store.Record`, `Store.Admit` | A certified device joins with a proof; an admin anchors a person's first device with `Record` and admits its later devices with `Admit`, without a new decision; an opt-in `Options.MaxDevices` ceiling gives `ErrTooManyDevices` |
 | `Braid.PublicKey`, `Braid.CheckAdmit`, `WelcomeEntry` | Read-only: this peer's key, what `Admit` would refuse now (and a full group), and the AddMember entry a welcome names |
@@ -216,7 +218,7 @@ Tested with unit, property and fuzz tests, bounded model checks of settlement an
 which cover only the sizes they enumerate and are not a proof for any size, and scenarios with several processes on one
 Mac, on 127.0.0.1 only. It has not been tested over a real network or through NATs. The Linux and Windows builds were vetted,
 not run. The full test run and the race detector run (`go test -race`) on the root package, `internal/dag`, `internal/settle`
-and `kv` passed on 2026-11-18; CI runs only when started by hand.
+and `kv` passed on 2026-11-18; CI runs only when started by hand. The kv network tests (`go test -race -count=20 -run TestKV ./kv`) passed on 2026-11-22.
 
 Settlement keeps one round mark per settler per round of the current settler config, until the config changes: 16 bytes
 in memory and one key of about 40 bytes on disk, written once. A braid that settles all day with 4 settlers at the default

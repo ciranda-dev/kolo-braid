@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"testing"
 
 	kolocodec "github.com/ciranda-dev/kolo-codec"
@@ -171,12 +172,17 @@ func app(tx *kolobraid.Tx, e *kolobraid.Entry) error {
 // replay settles es in order on a fresh view and returns it with its replayer.
 func replay(t testing.TB, apply kolobraid.ApplyFunc, es []kolobraid.Entry) replayer {
 	t.Helper()
-	db := kolostore.NewMemory()
-	t.Cleanup(func() { db.Close() })
 	var ms []kolobraid.Member
 	for _, w := range writers {
 		ms = append(ms, kolobraid.Member{Key: w})
 	}
+	return replayMembers(t, apply, ms, es)
+}
+
+func replayMembers(t testing.TB, apply kolobraid.ApplyFunc, ms []kolobraid.Member, es []kolobraid.Entry) replayer {
+	t.Helper()
+	db := kolostore.NewMemory()
+	t.Cleanup(func() { db.Close() })
 	r, err := newReplayer(db, apply, ms)
 	if err != nil {
 		t.Fatal(err)
@@ -461,5 +467,116 @@ func TestStoresSideBySide(t *testing.T) {
 	}
 	if got := pairs(b, s, nil, nil); !slices.Equal(got, []string{"y=2"}) {
 		t.Fatalf("store b sees %q", got)
+	}
+}
+
+func owned(i int, k string) string { return string(writers[i]) + "/" + k }
+
+// ownerStore lets a member write only the keys that start with its own public key.
+var ownerStore = NewWith([]byte("s/"), Options{Allow: func(_ *kolobraid.Tx, e *kolobraid.Entry, key []byte, _ bool) bool {
+	return bytes.HasPrefix(key, e.Writer)
+}})
+
+func ownerApply(tx *kolobraid.Tx, e *kolobraid.Entry) error {
+	_, err := ownerStore.Apply(tx, e)
+	return err
+}
+
+// TestAllowRejectsEverywhere: a refused op is a reject in the digest, the same on every peer, and changes nothing.
+func TestAllowRejectsEverywhere(t *testing.T) {
+	es := []kolobraid.Entry{
+		put(t, 0, owned(0, "a"), "1"),
+		put(t, 1, owned(0, "a"), "stolen"),
+		del(t, 2, owned(0, "a")),
+		put(t, 1, owned(1, "b"), "2"),
+		put(t, 2, "", "no owner"),
+	}
+	kolobraidtest.CheckApply(t, ownerApply, es)
+	d, err := kolobraidtest.FindDivergence(ownerApply, es, 4, 1)
+	if err != nil || d != nil {
+		t.Fatalf("divergence %v, %v", d, err)
+	}
+	r := replay(t, ownerApply, slices.Clone(es))
+	s := r.Settled()
+	got := pairs(ownerStore, s, nil, nil)
+	s.Close()
+	if want := []string{owned(0, "a") + "=1", owned(1, "b") + "=2"}; !slices.Equal(got, want) {
+		t.Fatalf("map %q, want %q", got, want)
+	}
+	// the same history with the refused entries rejected by hand must give the same digest, and the open store another
+	byHand := func(tx *kolobraid.Tx, e *kolobraid.Entry) error {
+		if o, err := decodeOp(e.Body); err == nil && !bytes.HasPrefix(o.Key, e.Writer) {
+			return kolobraid.Reject("by hand")
+		}
+		_, err := New([]byte("s/")).Apply(tx, e)
+		return err
+	}
+	if replay(t, byHand, slices.Clone(es)).Digest() != r.Digest() {
+		t.Fatal("a refused op is not a reject in the digest")
+	}
+	if replay(t, app, slices.Clone(es)).Digest() == r.Digest() {
+		t.Fatal("the refused ops took effect")
+	}
+}
+
+// TestAllowOwnerKeys: keys under a member's key are writable only by that member, for puts and deletes.
+func TestAllowOwnerKeys(t *testing.T) {
+	r := replay(t, ownerApply, []kolobraid.Entry{
+		put(t, 0, owned(0, "x"), "mine"),
+		put(t, 0, owned(0, "y"), "mine"),
+		put(t, 1, owned(0, "x"), "theirs"),
+		del(t, 1, owned(0, "y")),
+		put(t, 1, owned(1, "x"), "own"),
+		del(t, 0, owned(0, "y")),
+	})
+	s := r.Settled()
+	defer s.Close()
+	if got, want := pairs(ownerStore, s, nil, nil), []string{owned(0, "x") + "=mine", owned(1, "x") + "=own"}; !slices.Equal(got, want) {
+		t.Fatalf("map %q, want %q", got, want)
+	}
+}
+
+// TestAllowSeesRoles: Allow reads the roster of the entry's position through tx, here admins only.
+func TestAllowSeesRoles(t *testing.T) {
+	st := NewWith(nil, Options{Allow: func(tx *kolobraid.Tx, e *kolobraid.Entry, _ []byte, _ bool) bool {
+		m, ok := tx.Member(e.Writer)
+		return ok && m.Roles&kolobraid.RoleAdmin != 0
+	}})
+	apply := func(tx *kolobraid.Tx, e *kolobraid.Entry) error {
+		_, err := st.Apply(tx, e)
+		return err
+	}
+	ms := []kolobraid.Member{{Key: writers[0], Roles: kolobraid.RoleAdmin}, {Key: writers[1]}, {Key: writers[2]}}
+	r := replayMembers(t, apply, ms, []kolobraid.Entry{put(t, 1, "a", "member"), put(t, 0, "b", "admin"), del(t, 2, "b")})
+	s := r.Settled()
+	defer s.Close()
+	if got, want := pairs(st, s, nil, nil), []string{"b=admin"}; !slices.Equal(got, want) {
+		t.Fatalf("map %q, want %q", got, want)
+	}
+}
+
+// TestAllowPanicHalts: a panic in Allow halts the view with ErrHalted and leaks no entry data.
+func TestAllowPanicHalts(t *testing.T) {
+	st := NewWith(nil, Options{Allow: func(*kolobraid.Tx, *kolobraid.Entry, []byte, bool) bool { panic("secret-key") }})
+	apply := func(tx *kolobraid.Tx, e *kolobraid.Entry) error {
+		_, err := st.Apply(tx, e)
+		return err
+	}
+	var ms []kolobraid.Member
+	for _, w := range writers {
+		ms = append(ms, kolobraid.Member{Key: w})
+	}
+	db := kolostore.NewMemory()
+	defer db.Close()
+	r, err := newReplayer(db, apply, ms)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	e := put(t, 0, "k", "v")
+	e.ID = sha256.Sum256([]byte("panic"))
+	err = r.Settle([]kolobraid.Entry{e})
+	if !errors.Is(err, kolobraid.ErrHalted) || strings.Contains(err.Error(), "secret-key") {
+		t.Fatalf("settle returned %v, want ErrHalted without the panic value", err)
 	}
 }
