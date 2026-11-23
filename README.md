@@ -210,7 +210,7 @@ Every hash is BLAKE2b-256 over a kolo-codec encoding that starts with its own ta
 
 ## Status
 
-Beta and experimental, like every Kolo library at v0.x: the API may change before v1.0.0.
+Experimental. The API may change before v1.0.0.
 
 Tested with unit, property and fuzz tests, bounded model checks of settlement and membership (`scripts/modelcheck.sh`),
 which cover only the sizes they enumerate and are not a proof for any size, and scenarios with several processes on one

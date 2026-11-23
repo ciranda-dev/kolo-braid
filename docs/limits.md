@@ -79,7 +79,7 @@ measured or derived basis in the last section.
 |---|---|---|---|
 | `MaxCertsPerPerson` | 1024 | 1 to 2^20 | the certificates of one person in a view; the next is rejected. Apply scans them: 0.7 to 1.0 ms at 1,024 (`BenchmarkApplyCertAtTheBound`, Apple M5, under load). Raise it in `Options`, the same on every peer |
 | `PersonCertReserve` | an eighth of the bound (128), at least 1 when the bound is above 1 | 0 to `MaxCertsPerPerson`; -1 for none | slots kept for certificates the person key issued, so a stolen approver cannot fill the roster |
-| `MaxRevocationsPerDevice` | 1024 | 1 to 2^16 | approver revocations of one device key, one per certificate it had. A stolen approver signs one per certificate it can mint, so it follows `MaxCertsPerPerson`. Apply reads a counter kept in the view: 0.6 ms at the bound, against 1.2 ms for the scan it replaced (`BenchmarkApplyRevocationAtTheBound`); a read of the roster (`Revocations`, `Verify`) scans at most this many. Raise it in `Options`, the same on every peer |
+| `MaxRevocationsPerDevice` | 1024 | 1 to 2^16 | approver revocations of one device key, one per certificate it had. A stolen approver signs one per certificate it can mint, so it follows `MaxCertsPerPerson`. Apply scans them: 0.8 to 1.2 ms at 1,024 (`BenchmarkApplyRevocationAtTheBound`, Apple M5, under load); a read of the roster (`Revocations`, `Verify`) scans at most this many. Raise it in `Options`, the same on every peer |
 | `MaxDevices` | none (0) | any positive value | an opt-in ceiling on the seats of one person (anchored certificate, revoked or not) that `Admit` lets in; no ceiling by default; local to the admitting peer |
 
 | Fixed | Value | Reason |
