@@ -1,8 +1,7 @@
 // Package kv is a key-value map kept in a braid's view. Puts and deletes are data entries, applied in the braid's order: the
 // last effective operation on a key wins, on every peer alike, and no clock takes part. The order among concurrent writes is
 // decided by the braid and is not fair, so a rule such as "the first write wins" must not rely on it. The map has no access
-// control: any active member can put or delete any key. When keys belong to members, check
-// Entry.Writer (and Tx.Member for its roles) in the apply function before Store.Apply.
+// control unless Options.Allow is set: otherwise any active member can put or delete any key.
 //
 // A kv entry's body is, in kolo-codec: string "kolo-braid/kv/v0" ‖ uvarint op (1 put, 2 delete) ‖ bytes(key) ‖ bytes(value),
 // the value empty for a delete.
@@ -96,20 +95,33 @@ func decodeOp(body []byte) (op, error) {
 	return o, nil
 }
 
+// Options are the rules of a Store; the zero value lets any active member write any key.
+type Options struct {
+	// Allow, if set, reports whether entry e may write key (del for a delete); it must depend only on its arguments,
+	// write nothing through tx and not panic: a panic halts the view on that peer.
+	Allow func(tx *kolobraid.Tx, e *kolobraid.Entry, key []byte, del bool) bool
+}
+
 // Store is a kv map whose pairs live in the view under its prefix: key k is the view key prefix ‖ k. No other key of the
 // application's view may start with the prefix.
 type Store struct {
 	prefix []byte
+	allow  func(tx *kolobraid.Tx, e *kolobraid.Entry, key []byte, del bool) bool
 }
 
 // New returns a store with the given view key prefix; prefix plus key is at most MaxKeySize bytes.
-func New(prefix []byte) *Store { return &Store{prefix: slices.Clone(prefix)} }
+func New(prefix []byte) *Store { return NewWith(prefix, Options{}) }
+
+// NewWith is New with opts.
+func NewWith(prefix []byte, opts Options) *Store {
+	return &Store{prefix: slices.Clone(prefix), allow: opts.Allow}
+}
 
 func (s *Store) key(k []byte) []byte { return append(slices.Clip(s.prefix), k...) }
 
 // Apply applies e when it is a data entry whose body starts with the kv tag, and reports false for every other entry, so that an
-// application routes its own entries next to it. A kv body that does not decode, or whose key does not fit with the prefix,
-// is rejected: the same on every peer.
+// application routes its own entries next to it. A kv body that does not decode, whose key does not fit with the prefix,
+// or that Options.Allow refuses is rejected: the same on every peer.
 func (s *Store) Apply(tx *kolobraid.Tx, e *kolobraid.Entry) (handled bool, err error) {
 	if e.Kind != kolobraid.KindData || !isOp(e.Body) {
 		return false, nil
@@ -117,6 +129,9 @@ func (s *Store) Apply(tx *kolobraid.Tx, e *kolobraid.Entry) (handled bool, err e
 	o, err := decodeOp(e.Body)
 	if err != nil {
 		return true, kolobraid.Reject(err.Error())
+	}
+	if s.allow != nil && !s.allow(tx, e, o.Key, o.Delete) {
+		return true, kolobraid.Reject("kolobraid: kv write not allowed")
 	}
 	// a key that does not fit with the prefix is over the view's key bound: the write fails and the entry is rejected
 	if o.Delete {
