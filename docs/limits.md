@@ -60,6 +60,9 @@ value outside the range returns `ErrInvalidConfig` (group) or
 | Key, prefix included | 32 KiB | the view key bound, kolo-kv's key bound |
 | Value | 1 MiB | the view value bound, kolo-kv's value bound |
 | Entry body | at most the braid's `MaxBody` | a put is one data entry: tag, op, key and value |
+| Entries kept | one per put or delete, never erased | about 600 bytes of disk on every peer; a delete keeps the key name and the old values |
+| Tentative entries a `Tentative` read shows | at most `MaxTail` (default 2048) | the most tentative entries applied |
+| Key rule | none unless `Options.Allow` is set | any active member may write any key |
 
 ## Devices helper
 

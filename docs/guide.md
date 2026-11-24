@@ -606,6 +606,45 @@ v, err := db.Get([]byte("theme")) // a Put shows once the braid has applied it
   nil `end` has no upper bound, as in kolo-kv.
 - `DB.Close` does not close the braid.
 
+### What a kv.DB guarantees
+
+- Settled reads show a prefix of one total order, the same on every peer. Entries are added at its end only: a value read
+  from a `Settled` DB is never undone, and later settlements change later reads.
+- Tentative reads show a write, the reader's own included, once the braid has applied it, which is after `Put` returns.
+  A reorg can change what a tentative read shows, and a read shows at most `Limits.MaxTail` tentative entries.
+- The last effective operation on a key in the order wins. No clock takes part, and the order among concurrent writes is
+  not fair, so two members that write one key at once cannot tell which value will win until it settles.
+- A delete is an entry too. It removes the key from the view, but the key name and every old value stay in the entries of
+  every peer: nothing is erased, and each entry costs about 600 bytes of disk on every peer.
+- There is no rule on who may write which key unless `Options.Allow` is set; any active member may write any key.
+- Partition: members on each side keep writing and reading their own side's writes tentatively. A side with fewer than q
+  settlers settles nothing (a 2/2 split of 4 settlers under Majority settles on neither side), and after the heal every
+  member settles the same map. A member that was away fetches what it missed from the others and settles the same map.
+- Restart: a member that reopens its storage settles the same order and map as the others, waits for confirmation before it
+  writes, and its writes and deletes then take effect on every member.
+- Redelivery: a connection that offers strands a peer already holds changes nothing.
+- A retried `Put` after a successful one is a second entry with the same effect, ordered after what its writer had seen,
+  so it can overwrite a later write by another member. A `Put` that returned an error from the confirmation wait wrote
+  nothing. An error after the entry was appended (a storage error or `ErrHalted`) can leave it written, and a retry is then
+  a second entry.
+- A removed member's entries ordered before its removal keep their effect and those ordered after it are void, on every
+  peer. Where an entry written concurrently with the removal falls is decided by the order.
+- Not claimed: the model checks of settlement cover only the sizes they enumerate (see the README, Status), and the
+  network tests run on 127.0.0.1 only, with at most 4 members and 500 operations in one run.
+
+| Claim | Test |
+|---|---|
+| The settled value is the last effective entry of the settled order, the same on every peer | `TestKVPartitionConverges`, `TestConcurrentPuts` |
+| A split without quorum settles nothing; both sides read their own writes; the heal settles one map | `TestKVPartitionConverges` |
+| A member that was away settles the same map | `TestKVDisconnectedPeerCatchesUp` |
+| A restart on Pebble keeps the order and the map, and later writes and deletes take effect | `TestKVRestartOnPebble` |
+| Redelivery changes nothing | `TestKVRedeliveryIsNoOp` |
+| A retried `Put` is a second entry; a failed one wrote nothing | `TestKVRetriedPut` |
+| A removed member's later entries are void | `TestKVRemovedMemberWritesVoid` |
+| A write shows tentatively once applied, not when `Put` returns | `TestDBReadsItsWritesTentatively` |
+| A settled read is never undone by a reorg | `TestDBSettledNeverChanges` |
+| A refused `Put` returns nil and has no effect | `TestDBRefusedPutReturnsNil` |
+
 The body is, in kolo-codec, `string "kolo-braid/kv/v0" ‖ uvarint op (1 put, 2
 delete) ‖ bytes(key) ‖ bytes(value)`, the value empty for a delete. The
 package's tests run it through `kolobraidtest.CheckApply` and
