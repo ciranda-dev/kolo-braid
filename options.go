@@ -48,6 +48,15 @@ type Limits struct {
 	MaxTailBytes int64
 	// MaxPendingBytes bounds the entries that wait for a predecessor; default 16 MiB, 1 MiB to 1 GiB.
 	MaxPendingBytes int64
+	// MaxPendingPerStrand bounds the pending bytes of one strand, so one strand cannot fill MaxPendingBytes; default 256 KiB (a 64th
+	// of the default MaxPendingBytes), 1 KiB to MaxPendingBytes. A strand with nothing pending may always park one entry.
+	MaxPendingPerStrand int64
+	// MaxUnknownHeads is how many heads of strands not followed yet are kept per connection; default 21,619 (the heads of one
+	// announcement, at most 4 MiB), 1 to 2^20.
+	MaxUnknownHeads int
+	// MaxEarlyBytes bounds the Evidence entries kept against strands not followed yet, in bytes of their two objects; default 4 MiB
+	// (what 128 strands of 4 keys hold at the longest Evidence body), 16 KiB to 1 GiB.
+	MaxEarlyBytes int64
 	// MaxForks is how many second histories of one strand are kept; default 4, 1 to 64: a restored backup that writes on is one,
 	// and each one a hostile pair signs costs every peer a segment and a slot in later clocks. At the bound the entries of the next
 	// history are refused and no longer fetched, so an entry that needs one never places on this peer.
@@ -71,14 +80,16 @@ type Limits struct {
 const minMaxPullAhead = 64
 
 const (
-	defaultMaxTail         = 2048
-	defaultMaxPendingBytes = 16 << 20
-	defaultMaxForks        = 4
-	defaultPulseGap        = 500 * time.Millisecond
-	defaultPivotWait       = 3 * time.Second
-	defaultAnnounceGap     = 100 * time.Millisecond
-	defaultConfirmWait     = 10 * time.Second
-	defaultMaxEvents       = 1024
+	defaultMaxTail          = 2048
+	defaultMaxPendingBytes  = 16 << 20
+	defaultMaxPendingStrand = 256 << 10
+	defaultMaxEarlyBytes    = 4 << 20
+	defaultMaxForks         = 4
+	defaultPulseGap         = 500 * time.Millisecond
+	defaultPivotWait        = 3 * time.Second
+	defaultAnnounceGap      = 100 * time.Millisecond
+	defaultConfirmWait      = 10 * time.Second
+	defaultMaxEvents        = 1024
 )
 
 // withDefaults returns l with every zero field set; maxBody is the group's MaxBody.
@@ -91,6 +102,15 @@ func (l Limits) withDefaults(maxBody int) Limits {
 	}
 	if l.MaxPendingBytes == 0 {
 		l.MaxPendingBytes = defaultMaxPendingBytes
+	}
+	if l.MaxPendingPerStrand == 0 {
+		l.MaxPendingPerStrand = defaultMaxPendingStrand
+	}
+	if l.MaxUnknownHeads == 0 {
+		l.MaxUnknownHeads = headsPerAnnounce
+	}
+	if l.MaxEarlyBytes == 0 {
+		l.MaxEarlyBytes = defaultMaxEarlyBytes
 	}
 	if l.MaxForks == 0 {
 		l.MaxForks = defaultMaxForks
@@ -125,6 +145,12 @@ func (l Limits) validate() error {
 		why = "MaxTailBytes must be 1 MiB to 4 GiB"
 	case l.MaxPendingBytes < 1<<20 || l.MaxPendingBytes > 1<<30:
 		why = "MaxPendingBytes must be 1 MiB to 1 GiB"
+	case l.MaxPendingPerStrand < 1<<10 || l.MaxPendingPerStrand > l.MaxPendingBytes:
+		why = "MaxPendingPerStrand must be 1 KiB to MaxPendingBytes"
+	case l.MaxUnknownHeads < 1 || l.MaxUnknownHeads > 1<<20:
+		why = "MaxUnknownHeads must be 1 to 2^20"
+	case l.MaxEarlyBytes < 16<<10 || l.MaxEarlyBytes > 1<<30:
+		why = "MaxEarlyBytes must be 16 KiB to 1 GiB"
 	case l.MaxForks < 1 || l.MaxForks > 64:
 		why = "MaxForks must be 1 to 64"
 	case l.MaxPullAhead < minMaxPullAhead || l.MaxPullAhead > 1<<20:

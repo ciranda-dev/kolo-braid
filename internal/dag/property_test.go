@@ -43,7 +43,7 @@ func propCases(t testing.TB) []propCase {
 
 func (pc *propCase) order(t testing.TB, in []Node) []ID {
 	t.Helper()
-	d := newDAG(t, MaxLinksLimit)
+	d := newDAG(t, 1023)
 	addAll(t, d, in)
 	return sequence(t, d, pc.settled, pc.predicted, pc.group)
 }
@@ -126,7 +126,7 @@ func TestPropertyPure(t *testing.T) {
 		in := append(shuffled(r, pc.nodes), junk...)
 		in = append(in, pc.nodes[:10]...)
 		in = shuffled(r, in)
-		d := newDAG(t, MaxLinksLimit)
+		d := newDAG(t, 1023)
 		for k, n := range in {
 			addAll(t, d, []Node{n})
 			if k%37 == 0 {

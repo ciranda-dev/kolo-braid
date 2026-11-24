@@ -847,8 +847,8 @@ func (b *Braid) restore() error {
 	}
 	b.lk = &lookup{db: b.db, segs: func() int { return b.segCount }, cache: map[dag.Link]lookupHit{}}
 	b.segCount = len(rs.Segments)
-	b.d, err = dag.New(dag.Config{MaxLinks: b.cfg.MaxMembers - 1, MaxPendingBytes: b.lim.MaxPendingBytes,
-		MaxPendingPerStrand: b.lim.MaxPendingBytes / int64(b.cfg.MaxMembers), MaxForks: b.lim.MaxForks, Lookup: b.lk.find,
+	b.d, err = dag.New(dag.Config{MaxLinks: b.bounds.links(), MaxPendingBytes: b.lim.MaxPendingBytes,
+		MaxPendingPerStrand: b.lim.MaxPendingPerStrand, MaxForks: b.lim.MaxForks, Lookup: b.lk.find,
 		Segments: rs.Segments})
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrCorrupt, err)

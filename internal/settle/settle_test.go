@@ -517,6 +517,20 @@ func TestHoldBack(t *testing.T) {
 	}
 }
 
+// TestSixtyFiveSeats: a config above the old ceiling of 64 seats settles lockstep rounds, as the reference does.
+func TestSixtyFiveSeats(t *testing.T) {
+	w := newWorld()
+	keys := seq(65)
+	w.lockstep(keys, map[int]*ent{}, 6, 0, nil)
+	cfg := cfg0(w, Majority, keys...)
+	want := refIDs(newRef(w, w.all(), Majority, keys, staticRoster(Proposal{Rule: Majority, Seats: cfg.Seats})).committed())
+	p := newPeer(t, w, cfg, nil, rules{})
+	p.feed(w.ents...)
+	if len(want) == 0 || !slices.Equal(p.ids(), want) || p.s.Halted() != nil {
+		t.Fatalf("%d pivots, reference %d, halted %v", len(p.ids()), len(want), p.s.Halted())
+	}
+}
+
 func TestNewAndRosterErrors(t *testing.T) {
 	w := newWorld()
 	d, _ := dag.New(dag.Config{MaxLinks: 63, MaxPendingBytes: 1 << 20})
@@ -529,7 +543,7 @@ func TestNewAndRosterErrors(t *testing.T) {
 		{Rule: Majority, Seats: []Seat{good.Seats[0], {Key: keyOf(5), Strand: good.Seats[0].Strand}}},
 		{Rule: Majority, Seats: good.Seats, Activating: dag.ID{1}},
 		{Number: 1, Rule: Majority, Seats: good.Seats, Activating: dag.ID{1}},
-		{Rule: Majority, Seats: make([]Seat, MaxSeats+1)},
+		{Rule: Majority, Seats: make([]Seat, 2)},
 	}
 	for i, c := range bad {
 		if _, err := New(d, r, c, nil); !errors.Is(err, ErrInvalid) {

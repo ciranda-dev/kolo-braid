@@ -133,7 +133,7 @@ func Load(g Genesis, records iter.Seq2[[]byte, []byte]) (*Roster, error) {
 			return nil, corrupt("active strand not recorded as used by its key")
 		}
 	}
-	if len(r.members) > g.MaxMembers {
+	if g.MaxMembers > 0 && len(r.members) > g.MaxMembers {
 		return nil, corrupt("more members than MaxMembers")
 	}
 	r.founded = true

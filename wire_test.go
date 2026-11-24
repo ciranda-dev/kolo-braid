@@ -156,7 +156,7 @@ func TestMessageRejects(t *testing.T) {
 			}
 		}
 	}
-	// Announce: MaxMembers heads are the most.
+	// Announce: headsPerAnnounce heads are the most.
 	heads := func(n int) announceMsg {
 		m := announceMsg{Group: GroupID(eid(1))}
 		for range n {
@@ -164,18 +164,11 @@ func TestMessageRejects(t *testing.T) {
 		}
 		return m
 	}
-	small := formatBounds{MaxMembers: 2, MaxSettlers: 1, MaxBody: 1 << 10}
-	if _, err := encodeMessage(heads(2), small); err != nil {
-		t.Errorf("2 heads at MaxMembers 2: %v", err)
+	if _, err := encodeMessage(heads(headsPerAnnounce), bd); err != nil {
+		t.Errorf("%d heads: %v", headsPerAnnounce, err)
 	}
-	if _, err := encodeMessage(heads(3), small); !errors.Is(err, ErrInvalidArgument) {
-		t.Errorf("3 heads at MaxMembers 2: %v", err)
-	}
-	if _, err := encodeMessage(heads(64), bd); err != nil {
-		t.Errorf("64 heads at MaxMembers 64: %v", err)
-	}
-	if _, err := encodeMessage(heads(65), bd); err == nil {
-		t.Error("65 heads at MaxMembers 64")
+	if _, err := encodeMessage(heads(headsPerAnnounce+1), bd); !errors.Is(err, ErrInvalidArgument) {
+		t.Errorf("%d heads: %v", headsPerAnnounce+1, err)
 	}
 	// A head of 193 bytes, one over the bound, and a head that does not parse.
 	for name, h := range map[string][]byte{"193 bytes": append(testHead(1, 5).Encode(), make([]byte, 193-len(testHead(1, 5).Encode()))...), "junk": []byte("junk"), "empty": nil} {
@@ -230,8 +223,8 @@ func TestMessageRejects(t *testing.T) {
 
 func TestMessageSizeBounds(t *testing.T) {
 	bd := defaultBounds()
-	if maxMessage(msgAnnounce, bd) != 12352 {
-		t.Errorf("announce bound at 64 members = %d, the record says 12,352", maxMessage(msgAnnounce, bd))
+	if got := maxMessage(msgAnnounce, bd); got != 4194150 || got > maxMessageSize {
+		t.Errorf("announce bound = %d, want 4,194,150 within the %d frame", got, maxMessageSize)
 	}
 	// The largest honest announce (heads of 5-byte sizes) fits.
 	h := testHead(1, 1<<34)
@@ -242,13 +235,12 @@ func TestMessageSizeBounds(t *testing.T) {
 	if _, err := encodeMessage(m, bd); err != nil {
 		t.Errorf("64 honest heads: %v", err)
 	}
-	// A head with a 10-byte size is 192 bytes, the most a head can be: 63 of them fit the announce bound, 64 do not (the bound is
-	// MaxMembers x 192 + 64, and each head also has a length prefix).
+	// A head with a 10-byte size is 192 bytes, the most a head can be: headsPerAnnounce of them fit one message, one more does not.
 	full := testHead(1, 1<<63)
 	if n := len(full.Encode()); n != maxHeadSize {
 		t.Fatalf("a head with a 10-byte size is %d bytes", n)
 	}
-	for count, ok := range map[int]bool{63: true, 64: false} {
+	for count, ok := range map[int]bool{headsPerAnnounce: true, headsPerAnnounce + 1: false} {
 		m := announceMsg{Group: GroupID(eid(1))}
 		for range count {
 			m.Heads = append(m.Heads, full)

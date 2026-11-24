@@ -178,7 +178,7 @@ func (b *Braid) follow(id kololog.LogID, key ed25519.PublicKey, header []byte, b
 	b.fresh = append(b.fresh, id)
 	b.sync.offer(s)
 	if l, ok := b.early[id]; ok {
-		delete(b.early, id)
+		b.dropEarly(id)
 		for _, ev := range l {
 			b.holdEvidence(ev, bt, true)
 		}
@@ -512,18 +512,29 @@ func (b *Braid) holdEvidence(ev evidenceBody, bt kolostore.Batch, fromEntry bool
 const maxEarlyKeys = 4
 
 // keepEarly keeps an Evidence entry against a strand not followed yet, which the order may follow from an AddMember entry
-// placed in the same read: one per key and at most maxEarlyKeys per strand, for at most 2 x MaxMembers strands, until a settled
-// batch leaves no AddMember entry that names the strand. The caller holds b.mu.
+// placed in the same read: one per key and at most maxEarlyKeys per strand, within Limits.MaxEarlyBytes, until a settled batch
+// leaves no AddMember entry that names the strand. The caller holds b.mu.
 func (b *Braid) keepEarly(ev evidenceBody) {
 	if checkEvidence(ev) != nil {
 		return
 	}
 	l := b.early[ev.Strand]
-	if (l == nil && len(b.early) >= 2*b.bounds.MaxMembers) || len(l) >= maxEarlyKeys ||
+	if b.earlyBytes+earlySize(ev) > b.lim.MaxEarlyBytes || len(l) >= maxEarlyKeys ||
 		slices.ContainsFunc(l, func(e evidenceBody) bool { return bytes.Equal(e.Key, ev.Key) }) {
 		return
 	}
 	b.early[ev.Strand] = append(l, ev)
+	b.earlyBytes += earlySize(ev)
+}
+
+func earlySize(ev evidenceBody) int64 { return int64(len(ev.A) + len(ev.B)) }
+
+// dropEarly forgets the early evidence against a strand. The caller holds b.mu.
+func (b *Braid) dropEarly(id kololog.LogID) {
+	for _, ev := range b.early[id] {
+		b.earlyBytes -= earlySize(ev)
+	}
+	delete(b.early, id)
 }
 
 // evidenceFits reports whether ev is valid against the strand it names: a log ID does not bind a key, so any key can sign
@@ -649,7 +660,7 @@ func (b *Braid) release(ids []EntryID) {
 		}
 		for st := range b.early {
 			if !named[st] {
-				delete(b.early, st)
+				b.dropEarly(st)
 			}
 		}
 	}

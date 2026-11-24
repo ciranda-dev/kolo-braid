@@ -184,7 +184,10 @@ func decodeConfigRec(b []byte) (configRec, error) {
 	r := newReader(b, ErrCorrupt)
 	var c configRec
 	c.Rule = QuorumRule(r.uvarint(uint64(TwoThirds)))
-	n := r.uvarint(maxMaxSettlers)
+	n := r.uvarint(math.MaxInt32)
+	if r.err == nil && n > uint64(r.d.Len()/(ed25519.PublicKeySize+len(kololog.LogID{}))) {
+		r.fail(kolocodec.ErrShortBuffer)
+	}
 	for i := uint64(0); i < n && r.err == nil; i++ {
 		c.Seats = append(c.Seats, seatRec{Key: r.fixed(ed25519.PublicKeySize), Strand: r.array()})
 	}
@@ -366,10 +369,10 @@ func decodePosRec(b []byte) (posRec, error) {
 
 // lookup answers dag.Lookup from the entry index, rebuilding a clock from the nearest full one; recent answers are cached.
 type lookup struct {
-	db     kolostore.Backend
-	segs   func() int
-	cache  map[dag.Link]lookupHit
-	cached int
+	db    kolostore.Backend
+	segs  func() int
+	cache map[dag.Link]lookupHit
+	bytes int
 }
 
 type lookupHit struct {
@@ -377,8 +380,8 @@ type lookupHit struct {
 	clock dag.Clock
 }
 
-// maxLookupCache bounds the clocks kept by lookup; a clock costs about 8 bytes per segment.
-const maxLookupCache = 4096
+// maxLookupBytes bounds the clocks kept by lookup, at 8 bytes per segment: what 4,096 clocks of 1,024 segments take.
+const maxLookupBytes = 32 << 20
 
 func (l *lookup) find(link dag.Link) (int, dag.Clock, bool, error) {
 	if h, ok := l.cache[link]; ok {
@@ -403,12 +406,12 @@ func (l *lookup) find(link dag.Link) (int, dag.Clock, bool, error) {
 	if err != nil || !ok {
 		return 0, nil, ok, err
 	}
-	if l.cached >= maxLookupCache {
+	if l.bytes+8*len(c) > maxLookupBytes {
 		clear(l.cache)
-		l.cached = 0
+		l.bytes = 0
 	}
 	l.cache[link] = lookupHit{seg: seg, clock: slices.Clone(c)}
-	l.cached++
+	l.bytes += 8 * len(c)
 	return seg, c, true, nil
 }
 

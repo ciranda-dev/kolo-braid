@@ -198,7 +198,7 @@ Errors work with `errors.Is`; the library's own error messages start with `kolob
 
 ## Defaults
 
-Fixed by the genesis entry (`GroupConfig`): `Quorum` Majority (crash faults; TwoThirds when a settler device may be compromised), `MaxMembers` 64 (one node's default peer budget), `MaxSettlers` 7 (Majority then tolerates 3 offline), `MinSettlers` 4 (the margin above), `MaxBody` 1 MiB (the view's value bound) and `CheckpointEvery` 1024 settled positions (a divergence is caught within that many). Local bounds (`Limits`) have their own defaults, ranges and reasons in [docs/limits.md](docs/limits.md).
+Fixed by the genesis entry (`GroupConfig`): `Quorum` Majority (crash faults; TwoThirds when a settler device may be compromised), `MaxMembers` none (0: no ceiling; an application may set one), `MaxSettlers` 7 (Majority then tolerates 3 offline), `MinSettlers` 4 (the margin above), `MaxBody` 1 MiB (the view's value bound) and `CheckpointEvery` 1024 settled positions (a divergence is caught within that many). Local bounds (`Limits`) have their own defaults, ranges and reasons in [docs/limits.md](docs/limits.md).
 
 ## Formats
 
@@ -212,7 +212,7 @@ Every hash is BLAKE2b-256 over a kolo-codec encoding that starts with its own ta
 
 ## Status
 
-Beta and experimental, like every Kolo library at v0.x: the API may change before v1.0.0.
+Experimental. The API may change before v1.0.0.
 
 Tested with unit, property and fuzz tests, bounded model checks of settlement and membership (`scripts/modelcheck.sh`),
 which cover only the sizes they enumerate and are not a proof for any size, and scenarios with several processes on one

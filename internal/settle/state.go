@@ -194,10 +194,6 @@ func (r *reader) fixed(dst []byte) {
 
 func (r *reader) seats() []Seat {
 	n := r.count(64)
-	if n > MaxSeats {
-		r.fail("too many seats")
-		return nil
-	}
 	seats := make([]Seat, n)
 	for i := range seats {
 		r.fixed(seats[i].Key[:])

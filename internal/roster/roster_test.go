@@ -144,9 +144,8 @@ func TestNewRefusesGenesis(t *testing.T) {
 		func(g *Genesis) { g.Rule = 0 },
 		func(g *Genesis) { g.Rule = 3 },
 		func(g *Genesis) { g.MaxMembers = 1 },
-		func(g *Genesis) { g.MaxMembers = 1025 },
+		func(g *Genesis) { g.MaxMembers = -1 },
 		func(g *Genesis) { g.MaxSettlers = 0 },
-		func(g *Genesis) { g.MaxSettlers = 65 },
 		func(g *Genesis) { g.MaxMembers, g.MaxSettlers = 4, 5 },
 	} {
 		g := good
@@ -155,7 +154,7 @@ func TestNewRefusesGenesis(t *testing.T) {
 			t.Errorf("case %d: %v", i, err)
 		}
 	}
-	for _, g := range []Genesis{good, genesisOf(2, 2, 0), genesisOf(1024, 64, 0), genesisOf(2, 1, 0)} {
+	for _, g := range []Genesis{good, genesisOf(2, 2, 0), genesisOf(1024, 64, 0), genesisOf(2, 1, 0), genesisOf(0, 7, 0), genesisOf(0, 300, 0), genesisOf(2000, 65, 0)} {
 		if _, err := New(g); err != nil {
 			t.Errorf("%+v: %v", g, err)
 		}
@@ -220,6 +219,22 @@ func TestAddMemberFull(t *testing.T) {
 	if s.r.Len() != 3 {
 		t.Fatal(s.r.Len())
 	}
+}
+
+// TestAddMemberBeyond1024: with no ceiling every AddMember is effective; a set ceiling still voids the one past it.
+func TestAddMemberBeyond1024(t *testing.T) {
+	s := newSeq(t, genesisOf(0, 7, 0))
+	for i := range 2000 {
+		s.must(sA, addW(kid(100+i), sid(100+i), 0))
+	}
+	if s.r.Len() != 2001 {
+		t.Fatalf("%d members", s.r.Len())
+	}
+	c := newSeq(t, genesisOf(10, 7, 0))
+	for i := range 9 {
+		c.must(sA, addW(kid(100+i), sid(100+i), 0))
+	}
+	c.void(sA, addW(kid(200), sid(200), 0), Full)
 }
 
 func TestAddMemberRoles(t *testing.T) {

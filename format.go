@@ -27,19 +27,19 @@ const (
 	MaxViewValue = 1 << 20
 
 	// Ranges of GroupConfig. The reasons are in the field docs.
-	minMaxMembers, maxMaxMembers = 2, 1024
-	maxMaxSettlers               = 64
+	minMaxMembers                = 2
 	minMaxBody, maxMaxBody       = 1 << 10, 3 << 20
 	minCheckpoint, maxCheckpoint = 64, 1 << 20
 
-	defaultMaxMembers  = 64
 	defaultMaxSettlers = 7
 	defaultMinSettlers = 4
 	defaultMaxBody     = 1 << 20
 	defaultCheckpoint  = 1024
 
-	// maxFixedBody bounds the body of the kinds whose size follows from their fields: the largest is Evidence.
+	// maxFixedBody bounds the body of the kinds whose size follows from their fields, Settlers apart: the largest is Evidence.
 	maxFixedBody = 8300
+	// settlersBodyBase is the rule and the count of a Settlers body at their longest; each key adds 32 bytes.
+	settlersBodyBase = 1 + 10
 	// seedPairMax is what one seed pair of the largest view key and value needs: the pair count and two length prefixes.
 	seedPairMax = MaxViewKey + MaxViewValue + 16
 	// entryKeySize is the size of a kolo-log per-entry key.
@@ -83,9 +83,10 @@ type GroupConfig struct {
 	App string
 	// Quorum is the quorum rule; the default is Majority.
 	Quorum QuorumRule
-	// MaxMembers is the most active members; the default 64 is one node's default peer budget, the range is 2 to 1024.
+	// MaxMembers is the most active members; the default 0 is no ceiling, and a ceiling an application sets is 2 or more.
 	MaxMembers int
-	// MaxSettlers is the most settlers; the default is 7 (Majority then tolerates 3 offline) or MaxMembers if smaller, the range is 1 to 64.
+	// MaxSettlers is the most settlers; the default is 7 (Majority then tolerates 3 offline) or MaxMembers if smaller, the range is
+	// 1 to MaxMembers when it is set, and at most one more than the links an entry may hold, which is 39,066 at the default MaxBody.
 	MaxSettlers int
 	// MinSettlers is the seat count Admit grows to; the default is 4 (Majority has q 3, so one offline and one equivocating seat are tolerated) or MaxSettlers if smaller, the range is 1 to MaxSettlers.
 	MinSettlers int
@@ -100,11 +101,11 @@ func (c GroupConfig) WithDefaults() GroupConfig {
 	if c.Quorum == 0 {
 		c.Quorum = Majority
 	}
-	if c.MaxMembers == 0 {
-		c.MaxMembers = defaultMaxMembers
-	}
 	if c.MaxSettlers == 0 {
-		c.MaxSettlers = min(defaultMaxSettlers, c.MaxMembers)
+		c.MaxSettlers = defaultMaxSettlers
+		if c.MaxMembers > 0 {
+			c.MaxSettlers = min(c.MaxSettlers, c.MaxMembers)
+		}
 	}
 	if c.MinSettlers == 0 {
 		c.MinSettlers = min(defaultMinSettlers, c.MaxSettlers)
@@ -128,14 +129,14 @@ func (c GroupConfig) Validate() error {
 		why = "app tag is not valid UTF-8"
 	case c.Quorum != Majority && c.Quorum != TwoThirds:
 		why = "unknown quorum rule"
-	case c.MaxMembers < minMaxMembers || c.MaxMembers > maxMaxMembers:
-		why = "MaxMembers must be 2 to 1024"
-	case c.MaxSettlers < 1 || c.MaxSettlers > maxMaxSettlers || c.MaxSettlers > c.MaxMembers:
-		why = "MaxSettlers must be 1 to 64 and at most MaxMembers"
-	case c.MinSettlers < 1 || c.MinSettlers > c.MaxSettlers:
-		why = "MinSettlers must be 1 to MaxSettlers"
+	case c.MaxMembers < 0 || c.MaxMembers == 1:
+		why = "MaxMembers must be 0 or at least 2"
 	case c.MaxBody < minMaxBody || c.MaxBody > maxMaxBody:
 		why = "MaxBody must be 1 KiB to 3 MiB"
+	case c.MaxSettlers < 1 || c.MaxSettlers > c.bounds().links()+1:
+		why = fmt.Sprintf("MaxSettlers must be 1 to %d: at most MaxMembers when set, and one more than the links of an entry", c.bounds().links()+1)
+	case c.MinSettlers < 1 || c.MinSettlers > c.MaxSettlers:
+		why = "MinSettlers must be 1 to MaxSettlers"
 	case c.CheckpointEvery < minCheckpoint || c.CheckpointEvery > maxCheckpoint:
 		why = "CheckpointEvery must be 64 to 2^20"
 	default:
@@ -149,7 +150,7 @@ func (c GroupConfig) bounds() formatBounds {
 	return formatBounds{MaxMembers: c.MaxMembers, MaxSettlers: c.MaxSettlers, MaxBody: c.MaxBody}
 }
 
-// formatBounds are the group limits that decoders check an entry or message against.
+// formatBounds are the group limits that decoders check an entry or message against; MaxMembers 0 is no ceiling.
 type formatBounds struct {
 	MaxMembers  int
 	MaxSettlers int
@@ -158,13 +159,47 @@ type formatBounds struct {
 
 // genesisBounds returns the loosest bounds a group can have, for decoding a genesis entry before its own values are known.
 func genesisBounds() formatBounds {
-	return formatBounds{MaxMembers: maxMaxMembers, MaxSettlers: maxMaxSettlers, MaxBody: maxMaxBody}
+	return formatBounds{MaxSettlers: linkCap(maxMaxBody) + 1, MaxBody: maxMaxBody}
 }
 
 func (b formatBounds) valid() bool {
-	return b.MaxMembers >= minMaxMembers && b.MaxMembers <= maxMaxMembers &&
-		b.MaxSettlers >= 1 && b.MaxSettlers <= min(maxMaxSettlers, b.MaxMembers) &&
-		b.MaxBody >= minMaxBody && b.MaxBody <= maxMaxBody
+	return (b.MaxMembers == 0 || b.MaxMembers >= minMaxMembers) &&
+		b.MaxBody >= minMaxBody && b.MaxBody <= maxMaxBody &&
+		b.MaxSettlers >= 1 && b.MaxSettlers <= b.links()+1
+}
+
+// links is the most links an entry may hold: one per other member, and no more than fit one ENTRY answer.
+func (b formatBounds) links() int {
+	if b.MaxMembers > 0 {
+		return min(b.MaxMembers-1, linkCap(b.MaxBody))
+	}
+	return linkCap(b.MaxBody)
+}
+
+// announceHeads is the most heads one ANNOUNCE message carries: what one frame holds, and no more than MaxMembers when the group
+// sets that ceiling, as v0.1.0 peers read no more.
+func (b formatBounds) announceHeads() int {
+	if b.MaxMembers > 0 {
+		return min(headsPerAnnounce, b.MaxMembers)
+	}
+	return headsPerAnnounce
+}
+
+// linkMax is the size of the longest encoded link: a strand, an index of 10 bytes and an entry ID.
+const linkMax = 32 + 10 + 32
+
+// entryFixedMax is the tag, the group, the kind, the prev, the link count, the body length and the frame length of an entry
+// at their longest.
+const entryFixedMax = 20 + 32 + 1 + 32 + 5 + 5 + 5
+
+// sealOverhead is the nonce and the tag that kolo-log puts around an entry.
+const sealOverhead = 24 + 16
+
+// linkCap is the most links an entry with a body of maxBody bytes may hold and still fit one ENTRY answer, whatever its link
+// indexes: its record and inclusion proof at kolo-log's object bound, its key, and its ciphertext padded by at most a sixteenth.
+func linkCap(maxBody int) int {
+	room := entryBudget - 2*maxEvidenceObject - entryKeySize - sealOverhead
+	return max(0, (room*16/17-entryFixedMax-maxBody)/linkMax)
 }
 
 func (b formatBounds) bodyMax(k Kind) int {
@@ -173,6 +208,8 @@ func (b formatBounds) bodyMax(k Kind) int {
 		return b.MaxBody
 	case KindSeed:
 		return max(b.MaxBody, seedPairMax)
+	case KindSettlers:
+		return settlersBodyBase + ed25519.PublicKeySize*b.MaxSettlers
 	}
 	return maxFixedBody
 }
@@ -248,7 +285,7 @@ func decodeContent(b []byte, strand kololog.LogID, index uint64, bd formatBounds
 	case (index == 0) != (c.Prev == EntryID{}):
 		r.failf("prev field is zero only at index 0")
 	}
-	n := r.uvarint(uint64(bd.MaxMembers - 1))
+	n := r.uvarint(uint64(bd.links()))
 	switch {
 	case r.err != nil:
 	case c.Kind == KindGenesis && n > 0:
@@ -542,9 +579,9 @@ func decodeGenesis(r *reader) genesisBody {
 	c := &g.Config
 	c.App = r.str(MaxAppTag)
 	c.Quorum = QuorumRule(r.uvarint(uint64(TwoThirds)))
-	c.MaxMembers = int(r.uvarint(maxMaxMembers))
-	c.MaxSettlers = int(r.uvarint(maxMaxSettlers))
-	c.MinSettlers = int(r.uvarint(maxMaxSettlers))
+	c.MaxMembers = int(r.uvarint(math.MaxInt32))
+	c.MaxSettlers = int(r.uvarint(math.MaxInt32))
+	c.MinSettlers = int(r.uvarint(math.MaxInt32))
 	c.MaxBody = int(r.uvarint(maxMaxBody))
 	c.CheckpointEvery = int(r.uvarint(maxCheckpoint))
 	if r.flag() {

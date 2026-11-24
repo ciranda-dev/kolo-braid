@@ -26,6 +26,8 @@ const (
 	maxHeadSize = 192
 	// maxAnnounceExtra is what an announce may carry besides its heads' worth of bytes.
 	maxAnnounceExtra = 64
+	// headsPerAnnounce is the most heads one announce carries: what the message bound holds of heads with their 2-byte lengths.
+	headsPerAnnounce = (maxMessageSize - maxAnnounceExtra) / (maxHeadSize + 2)
 	// A request is its version, type and fields at their longest uvarints.
 	maxRecordReq = 2 + 32 + 10
 	maxEntryReq  = 2 + 32 + 10 + 10 + 32
@@ -389,7 +391,7 @@ func readErr(err error) error {
 func maxMessage(t messageType, bd formatBounds) int {
 	switch t {
 	case msgAnnounce:
-		return bd.MaxMembers*maxHeadSize + maxAnnounceExtra
+		return headsPerAnnounce*(maxHeadSize+2) + maxAnnounceExtra
 	case msgEvidence:
 		return maxEvidenceMsg
 	case msgRecordReq:
@@ -435,7 +437,7 @@ func decodePayload(p []byte, bd formatBounds) (message, error) {
 
 func decodeAnnounce(r *reader, bd formatBounds) announceMsg {
 	m := announceMsg{Group: GroupID(r.array())}
-	n := r.uvarint(uint64(bd.MaxMembers))
+	n := r.uvarint(headsPerAnnounce)
 	if r.err == nil && n > uint64(r.d.Len()/2) {
 		r.fail(kolocodec.ErrShortBuffer)
 	}

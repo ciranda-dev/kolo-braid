@@ -533,6 +533,23 @@ func TestFirstSightOfARecordStands(t *testing.T) {
 	}
 }
 
+// TestApproverRevocationsPastTheOldDefault: a device that had 65 certificates keeps all 65 approver revocations at the default bound.
+func TestApproverRevocationsPastTheOldDefault(t *testing.T) {
+	s := newStore(t, nil)
+	person, laptop, phone := generate(t), generate(t), generate(t)
+	b := found(t, s, generate(t), kolobraid.GroupConfig{})
+	lc := certify(t, person, laptop, 1, true)
+	mustRecord(t, b, certBody(t, lc))
+	for serial := uint64(1); serial <= 65; serial++ {
+		pc := certifyBy(t, laptop, lc, phone, serial)
+		mustRecord(t, b, revBody(t, revokeByApprover(t, laptop, lc, pc), pc))
+	}
+	revs, err := s.Revocations(view(t, b), person.PublicKey(), phone.PublicKey())
+	if err != nil || len(revs) != 65 {
+		t.Fatalf("Revocations = %d, %v; want 65", len(revs), err)
+	}
+}
+
 func TestApproverRevocationBoundIsPerDevice(t *testing.T) {
 	s := newStore(t, &devices.Options{MaxRevocationsPerDevice: 1})
 	person, laptop, d1, d2 := generate(t), generate(t), generate(t), generate(t)
@@ -587,7 +604,7 @@ func TestRetiredApproverRecordsAllDropped(t *testing.T) {
 func TestDefaultBounds(t *testing.T) {
 	s := newStore(t, nil)
 	certs, reserved, revs := devices.Caps(s)
-	if certs != 1024 || reserved != 128 || revs != 64 || devices.DefaultMaxCertsPerPerson != 1024 || devices.DefaultMaxRevocationsPerDevice != 64 {
+	if certs != 1024 || reserved != 128 || revs != 1024 || devices.DefaultMaxCertsPerPerson != 1024 || devices.DefaultMaxRevocationsPerDevice != 1024 {
 		t.Fatalf("bounds = %d %d %d", certs, reserved, revs)
 	}
 	// The reserve is an eighth of the bound unless it is given, and -1 reserves nothing.

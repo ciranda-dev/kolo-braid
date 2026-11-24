@@ -296,7 +296,7 @@ func newPeer(t testing.TB, w *world, cfg Config, anchor *Anchor, dev rules) *pee
 }
 
 func newPeerE(w *world, cfg Config, anchor *Anchor, dev rules) (*peer, error) {
-	d, err := dag.New(dag.Config{MaxLinks: 63, MaxPendingBytes: 1 << 30})
+	d, err := dag.New(dag.Config{MaxLinks: 255, MaxPendingBytes: 1 << 30})
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +630,7 @@ func staticRoster(p Proposal) func([]dag.ID) Proposal { return func([]dag.ID) Pr
 
 // dagRoster orders the batches with the production DAG, as roster.fn does.
 func dagRoster(t testing.TB, w *world, D bitset, base Proposal) func([]dag.ID) Proposal {
-	d, err := dag.New(dag.Config{MaxLinks: 63, MaxPendingBytes: 1 << 30})
+	d, err := dag.New(dag.Config{MaxLinks: 255, MaxPendingBytes: 1 << 30})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,8 +22,8 @@ const (
 	// DefaultMaxCertsPerPerson is the default of Options.MaxCertsPerPerson.
 	DefaultMaxCertsPerPerson = 1024
 	// DefaultMaxRevocationsPerDevice is the default of Options.MaxRevocationsPerDevice.
-	DefaultMaxRevocationsPerDevice = 64
-	// maxCertsLimit and maxRevocationsLimit bound the options: one scan of the view is at most that long.
+	DefaultMaxRevocationsPerDevice = DefaultMaxCertsPerPerson
+	// maxCertsLimit and maxRevocationsLimit bound the options: a scan of the view, in apply or in a read, is at most that long.
 	maxCertsLimit       = 1 << 20
 	maxRevocationsLimit = 1 << 16
 )
@@ -50,8 +50,7 @@ var (
 // the same values, as it must run the same apply function.
 type Options struct {
 	// MaxDevices, when positive, is the most seats of one person that Admit lets in: the members that hold an anchored certificate
-	// of it, revoked or not. Zero, the default, is no ceiling: the group's MaxMembers seats are the only bound. Local to the
-	// admitting peer.
+	// of it, revoked or not. Zero, the default, is no ceiling. Local to the admitting peer.
 	MaxDevices int
 	// MaxCertsPerPerson is the most device certificates a view holds for one person; the next is rejected. Default
 	// DefaultMaxCertsPerPerson, range 1 to 2^20: it bounds the scan of one apply.
@@ -62,7 +61,8 @@ type Options struct {
 	// and -1 reserves nothing.
 	PersonCertReserve int
 	// MaxRevocationsPerDevice is the most approver-signed revocations kept for one device key, one per certificate it had; the
-	// next is rejected. Default DefaultMaxRevocationsPerDevice, range 1 to 2^16: an arbitrary safety bound.
+	// next is rejected. Default DefaultMaxRevocationsPerDevice, range 1 to 2^16: the same as MaxCertsPerPerson, since a stolen
+	// approver signs one revocation per certificate it can mint. Apply and a read of the roster scan at most this many.
 	MaxRevocationsPerDevice int
 	// Now is the clock of Admit; nil means time.Now.
 	Now func() time.Time
